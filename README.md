@@ -6,12 +6,16 @@
 3. Román Vélez
 
 
+
 ## Project Overview :mag:
 This project aims to create a robust product data architecture to analyze and visualize the geographical distribution of users utilizing "BAIT" telecommunications service in Mexico. The architecture leverages Apache Spark on AWS for an ETL (Extract, Transform, Load) processes, Python for additional ELT (Extract, Load, Transform) operations, and Amazon QuickSight for creating insightful dashboards.
+
+![Project Flow](figures/project_flow.png)
 
 ## Project Structure :open_file_folder:
 ```
 .
+├── figures/
 ├── data/
 ├── etl/
 │   ├── scripts.py
@@ -68,7 +72,7 @@ Python scripts are used for additional data transformation and loading processes
 Amazon QuickSight
 QuickSight is used to create dashboards for visualizing the geographical distribution of users.
 
-## License
+## License :page_facing_up:
 This project is licensed under the MIT License. See the LICENSE file for details.
 
 For further questions or support, please open an issue in the repository or contact the project maintainer.
