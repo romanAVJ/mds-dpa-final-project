@@ -71,6 +71,17 @@ Python scripts are used for additional data transformation and loading processes
 
 Amazon QuickSight is used to create dashboards for visualizing the geographical distribution of users.
 
+## Create Environment
+
+Create a virtual environment and install the required packages. Using python 3.9+ is recommended.
+
+```bash
+conda create -n bait-telecom python=3.9
+conda activate bait-telecom
+pip install -r requirements.txt
+```
+
+
 ## License :page_facing_up:
 This project is licensed under the MIT License. See the LICENSE file for details.
 

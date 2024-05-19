@@ -1,0 +1,39 @@
+# Reporting
+
+# Settings
+
+```{python}
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import geopandas as gpd
+
+from dotenv import load_dotenv
+import awswrangler as wr
+import os
+import boto3
+```
+
+Connect to AWS
+
+```{python}
+# load environment variables with
+load_dotenv()
+
+# connect to AWS with credentials
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
+AWS_REGION = os.getenv("REGION")
+
+# connect to AWS
+session = boto3.Session(
+    aws_access_key_id=AWS_ACCESS_KEY_ID,
+    aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+    region_name=AWS_REGION
+)
+s3 = session.client("s3")
+```
+
+
+# Data
