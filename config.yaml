@@ -1,0 +1,6 @@
+aws:
+  folder: 'telecom-outputs'
+  users-file: 'user_location/'
+  walmart-file: 'walmart.csv'
+  municipalities-file: 'Municipios/'
+  states-file: 'Estados/'

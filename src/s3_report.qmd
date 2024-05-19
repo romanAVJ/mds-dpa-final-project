@@ -12,6 +12,7 @@ import geopandas as gpd
 from dotenv import load_dotenv
 import awswrangler as wr
 import os
+import yaml
 import boto3
 ```
 
@@ -21,10 +22,16 @@ Connect to AWS
 # load environment variables with
 load_dotenv()
 
+# import config
+with open("../config.yaml") as f:
+    config = yaml.safe_load(f)
+
 # connect to AWS with credentials
 AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 AWS_REGION = os.getenv("REGION")
+BUCKET = os.getenv("BUCKET")
+FOLDER = config["aws"]["folder"]
 
 # connect to AWS
 session = boto3.Session(
@@ -37,3 +44,23 @@ s3 = session.client("s3")
 
 
 # Data
+
+Get data from S3
+
+```{python}
+# get data from S3
+df_users = wr.s3.read_parquet(
+    f"s3://{BUCKET}/{FOLDER}/{config['aws']['users-file']}"
+    )
+
+```
+
+```{python}
+# get walmart
+df_walmart = wr.s3.read_csv(
+    f"s3://{BUCKET}/{FOLDER}/{config['aws']['walmart-file']}"
+    )
+
+```
+
+
