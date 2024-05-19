@@ -30,14 +30,14 @@ This project aims to create a robust product data architecture to analyze and vi
 - AWS account with access to S3, EMR, and QuickSight
 - Python 3.9+
 
-## Setup and Installation
+## Setup and Installation :hammer_and_wrench:
 
-### AWS Configuration
+### AWS Configuration :cloud:
 1. S3 Buckets: Create S3 buckets for raw data, processed data, and output data.
 2. EMR Cluster: Set up an EMR cluster configured to run Spark jobs.
 3. IAM Roles: Ensure proper IAM roles and policies are in place to allow access to S3, EMR, and QuickSight.
 
-### Local Environment
+### Local Environment Setup :computer:
 1. Clone the repository
 
    ```bash
@@ -52,7 +52,7 @@ This project aims to create a robust product data architecture to analyze and vi
    pip install -r elt/requirements.txt
     ```
 
-### ETL Process
+### ETL Process :arrows_counterclockwise:
 #### Spark on AWS
 Spark jobs are used to handle the initial stages of the ETL process.
 
@@ -67,10 +67,9 @@ Python scripts are used for additional data transformation and loading processes
    python elt/scripts.py
    ```
 
-### Data Visualization
+### Data Visualization :bar_chart:
 
-Amazon QuickSight
-QuickSight is used to create dashboards for visualizing the geographical distribution of users.
+Amazon QuickSight is used to create dashboards for visualizing the geographical distribution of users.
 
 ## License :page_facing_up:
 This project is licensed under the MIT License. See the LICENSE file for details.
