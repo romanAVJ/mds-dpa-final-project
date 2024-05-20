@@ -4,3 +4,4 @@ aws:
   walmart-file: 'walmart.csv'
   municipalities-file: 'Municipios/'
   states-file: 'Estados/'
+  connections-file: 'user_connection/'

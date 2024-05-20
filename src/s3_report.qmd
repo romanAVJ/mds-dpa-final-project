@@ -1,24 +1,29 @@
+---
+title: "BAIT"
+format: 
+    html:
+        code-fold: true
+---
+
 # Reporting
-
-# Settings
-
 ```{python}
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import geopandas as gpd
-
+from shapely import wkb
 from dotenv import load_dotenv
 import awswrangler as wr
 import os
 import yaml
 import boto3
-```
+from IPython import display as ICD
+import plotly.express as px
 
+"""
 Connect to AWS
-
-```{python}
+"""
 # load environment variables with
 load_dotenv()
 
@@ -40,27 +45,315 @@ session = boto3.Session(
     region_name=AWS_REGION
 )
 s3 = session.client("s3")
+
+"""
+Extract the data
+"""
+
+# get users data from S3
+gdf_users = (
+    wr.s3.read_parquet(
+        f"s3://{BUCKET}/{FOLDER}/{config['aws']['users-file']}"
+    )
+    .rename(columns={"client_latitude": "latitude", "client_longitude": "longitude"})
+    # convert to GeoDataFrame
+    .pipe(gpd.GeoDataFrame)
+    .assign(
+        geometry=lambda x: gpd.points_from_xy(x['longitude'], x['latitude'])
+    )
+    .set_crs(epsg=4326)
+)
+
+# Eliminate invalid values of raw_sim_operator_name
+gdf_users = gdf_users[~gdf_users["raw_sim_operator_name"].isin(["TELCEL", "Solo llamadas de emergencia", "Sin servicio", "AT&T", "ALTAN"])]
+
+# Standarize the name of Megacable
+gdf_users.loc[gdf_users["raw_sim_operator_name"].isin(["Mega 4.5G", "Mega4.5G"]),
+           "raw_sim_operator_name"] = "Megacable"
+
+# download shapefile of states
+gdf_states = (
+    wr.s3.read_parquet(
+        "s3://itam-analytics-javier/telecom-outputs/mexico_states.parquet"
+    )
+    # pass geometry column from binary to geometry
+    .assign(geometry=lambda x: x['geometry'].apply(wkb.loads))
+    .pipe(gpd.GeoDataFrame)
+    .set_crs(epsg=4326)
+    .rename(columns={"CODIGO": "cve_ent", "ESTADO": "cve_name"})
+    .assign(
+        cve_ent=lambda x: x['cve_ent'].str[-2:],
+        cve_name=lambda x: x['cve_name'].str.lower()
+    )
+    .sort_values('cve_ent', ignore_index=True)
+)
+
+# get data of walmart stores
+re_walmart = r"(walmart|wal mart|superama|waltmart)"
+re_sams = r"(sams|sam's|sam s|sam's club|sam s club|sam'sclub|sam sclub|sam club|mi bodega)"
+re_bodega = r"(bodega aurrera|bodega|aurrera|ba|boa|\$b|mb|b )"
+re_supercenter = r"(supercenter|super center)"
+
+gdf_walmart = (
+    wr.s3.read_csv(
+        f"s3://{BUCKET}/{FOLDER}/{config['aws']['walmart-file']}"
+    )
+    .assign(
+        geometry=lambda x: gpd.points_from_xy(x['longitude'], x['latitude']),
+        # get bodega aurrera or walmart or sams in name
+        store_name=lambda x: np.select(
+            [
+                x['name'].str.contains(re_bodega, case=False),
+                x['name'].str.contains(re_walmart, case=False),
+                x['name'].str.contains(re_sams, case=False),
+                x['name'].str.contains(re_supercenter, case=False)
+            ],
+            ['bodega aurrera', 'walmart', 'sams', 'supercenter'],
+            default='other'
+        )
+    )
+    .pipe(gpd.GeoDataFrame, crs="EPSG:4326")
+    .query("store_name != 'other'")
+    .loc[:, [
+             'id', 'store_name', 'name', 'staff_stratum_description',
+             'postal_code', 'cve_ent', 'cve_mun', 'geometry'
+            ]]
+)
+
+# get connections data from S3
+gdf_connections = (
+    wr.s3.read_parquet(
+        f"s3://{BUCKET}/{FOLDER}/{config['aws']['connections-file']}"
+    )
+)
 ```
 
-
-# Data
-
-Get data from S3
+# Participación de mercado
 
 ```{python}
-# get data from S3
-df_users = wr.s3.read_parquet(
-    f"s3://{BUCKET}/{FOLDER}/{config['aws']['users-file']}"
-    )
+"""
+Data preprocessing
+"""
 
+# join users with states
+tbl_users_state = (
+    gpd.sjoin_nearest(
+        gdf_users.to_crs("EPSG:6372"), gdf_states.to_crs("EPSG:6372"),
+    )
+    .drop_duplicates(subset=["device_id"])
+    .filter(["device_id", "postal_code", "raw_sim_operator_name", "cve_name"])
+)
+
+# Define the dictionary
+zonas_nielsen = {
+    "BAJIO": ["aguascalientes", "jalisco", "guanajuato", "colima", "michoacán"],
+    "PACIFICO": ["baja california", "baja california sur", "sinaloa", "sonora", "nayarit"],
+    "NORTE": ["chihuahua", "coahuila", "durango", "nuevo león", "san luis potosí", "tamaulipas", "zacatecas"],
+    "SURESTE": ["campeche", "chiapas", "oaxaca", "quintana roo", "tabasco", "veracruz", "yucatán"],
+    "CENTRO": ["distrito federal", "guerrero", "hidalgo", "méxico", "morelos", "puebla", "querétaro", "tlaxcala"]
+}
+
+# Map the states to their corresponding regions
+tbl_users_state['region'] = (
+    tbl_users_state['cve_name']
+    .map(lambda x: 
+    next((region for region, states in zonas_nielsen.items() if x.lower() in states),None))
+)
+
+# Group by 'raw_sim_operator_name' and count 'device_id', then sort and get the top 10
+operadores = (
+    tbl_users_state
+    .groupby(["raw_sim_operator_name"])['device_id']
+    .count()
+    .sort_values(ascending=False)
+    .head(n=10)
+)
+
+operadores = operadores.reset_index()
+
+# Obtain the name of the operators of interest
+operadores = operadores["raw_sim_operator_name"]
+
+# Group by 'raw_sim_operator_name' and count 'device_id'
+gdf_top_operador = tbl_users_state.groupby(["raw_sim_operator_name", "region"])['device_id'].count()
+
+# Convert the Series to a DataFrame
+gdf_top_operador = gdf_top_operador.reset_index()
+
+# Rename columns for clarity
+gdf_top_operador.columns = ['raw_sim_operator_name', "region", 'device_id_count']
+
+# Obtain the total number of users per region
+totales = gdf_top_operador.groupby("region")["device_id_count"].aggregate(usuarios_region = "sum")
+
+totales = totales.reset_index()
+
+# Select only the 10 top operators
+gdf_top_operador = gdf_top_operador[gdf_top_operador['raw_sim_operator_name'].isin(operadores)]
+
+# Merge with the table of totales
+gdf_top_operador = (
+    gdf_top_operador.merge(
+        totales,
+        on="region",
+        how="left")
+)
+
+# Obtain the participacion_mercado per region
+gdf_top_operador["participacion_mercado"] = gdf_top_operador["device_id_count"]/ gdf_top_operador["usuarios_region"]
+
+# Pivot the DataFrame for the stacked bar chart
+pivot_df = gdf_top_operador.pivot(index='region', columns='raw_sim_operator_name', values='participacion_mercado')
+
+# Fill NaN values with 0
+pivot_df = pivot_df.fillna(0)
+
+# Plotting the stacked bar chart
+pivot_df.plot(kind='bar', stacked=True, figsize=(12, 8), colormap='tab20')
+
+# Adding labels and title
+plt.xlabel('Estado')
+plt.ylabel('Device ID Count')
+plt.title('Top 10 SIM Operators by Device ID Count per Estado')
+plt.legend(title='SIM Operator Name', bbox_to_anchor=(1.05, 1), loc='upper left')
+
+# Rotate x-axis labels for better readability
+plt.xticks(rotation=45)
+
+# Display the plot
+plt.tight_layout()
+plt.show()
+```
+
+# Presencia nacional
+```{python}
+# Select only BAIT users
+gdf_bait_users = gdf_users[gdf_users["raw_sim_operator_name"]=="BAIT"]
+
+# join users with stores getting the closest store
+gdf_clients_stores = (
+    gpd.sjoin_nearest(
+        gdf_bait_users.to_crs("EPSG:6372"), gdf_walmart.to_crs("EPSG:6372"),
+    )
+    .drop_duplicates(subset=["device_id"])
+    .groupby(["name", "store_name", "id", "cve_ent", "cve_mun"])  # denue_id is the store id
+    .agg(
+        count=("device_id", "count")
+    )
+    .reset_index()
+    .sort_values("count", ascending=False)
+    .merge(
+        gdf_walmart.loc[:, ["id", "geometry"]],
+        on="id",
+        how="left"
+    )
+    .pipe(gpd.GeoDataFrame)
+    .set_crs(epsg=4326)
+)
+
+# plot states with count of users
+fig, ax = plt.subplots(figsize=(10, 10))
+gdf_states.plot(ax=ax, color='white', edgecolor='black')
+
+gdf_clients_stores.plot(
+    ax=ax,
+    markersize=gdf_clients_stores['count'],
+    column='count',
+    legend=True,
+    cmap='viridis',
+    alpha=0.5
+)
+```
+
+# Análisis de tiendas por region
+
+```{python}
+# join users with states
+gdf_clients_stores_region = (
+    gpd.sjoin_nearest(
+        gdf_clients_stores.to_crs("EPSG:6372"), gdf_states.to_crs("EPSG:6372"),
+    )
+)
+
+# Map the states to their corresponding regions
+gdf_clients_stores_region['region'] = (
+    gdf_clients_stores_region['cve_name']
+    .map(lambda x: 
+    next((region for region, states in zonas_nielsen.items() if x.lower() in states),None))
+)
+
+# Function to print the top 5 and bottom 5 per region
+def top_bottom(region):
+    stores = (gdf_clients_stores_region[gdf_clients_stores_region["region"]==region]
+        .sort_values("count", ascending=False)
+        )[["name", "store_name","cve_name","count"]]
+    stores.columns = ["Nombre", "Formato", "Estado", "Clientes_reales"]
+
+    print(f"Top 5 tiendas {region}")
+    ICD.display(stores.head(n=5))
+    print(f"Bottom 5 tiendas {region}")
+    ICD.display(stores.tail(n=5))
+
+for zone in zonas_nielsen:
+    top_bottom(zone)
+    print("\n")
+```
+
+# Análisis temporal
+
+```{python}
+# Aggregate the day of the week in the data
+gdf_connections['day_of_week'] = gdf_connections['result_date'].dt.day_name()
+
+# Get BAIT user per store
+stores = (gdf_clients_stores_region.sort_values("count", ascending=False)
+        )[["name", "store_name","cve_name","count"]]
+stores.columns = ["Nombre", "Formato", "Estado", "Clientes_reales"]
+
+# Postal code of two stores
+cp_top = gdf_walmart[gdf_walmart["name"]==stores.head(n=1)["Nombre"][0]].postal_code
+cp_bottom = gdf_walmart[gdf_walmart["name"]==stores.tail(n=1)["Nombre"].iloc[0]].postal_code
+
+"""
+# Comparison between potential users and real users per day of the week
+fig = px.histogram(gdf_connections, x="day_of_week", 
+category_orders=dict(day_of_week=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]))
+
+fig_bait = px.histogram(gdf_connections[gdf_connections["raw_sim_operator_name"]=="BAIT"], x="day_of_week", 
+category_orders=dict(day_of_week=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]))
+
+fig.show()
+fig_bait.show()
+"""
+```
+
+
+```{python}
+
+"""
+# User analysis for the most crowded store
+fig_top = px.histogram(gdf_co"nnections[gdf_connections["postal_code"]== f"{cp_top.iloc[0]}"], x="day_of_week", 
+category_orders=dict(day_of_week=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]))
+
+fig_bait_top = px.histogram(gdf_connections[(gdf_connections["raw_sim_operator_name"]=="BAIT") & (gdf_connections["postal_code"]==f"{cp_top.iloc[0]}")], x="day_of_week", 
+category_orders=dict(day_of_week=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]))
+
+fig_top.show()
+fig_bait_top.show()
+
+"""
 ```
 
 ```{python}
-# get walmart
-df_walmart = wr.s3.read_csv(
-    f"s3://{BUCKET}/{FOLDER}/{config['aws']['walmart-file']}"
-    )
+"""
+# User analysis for the less crowded store
+fig_bottom = px.histogram(gdf_connections[gdf_connections["postal_code"]== f"{cp_bottom.iloc[0]}"], x="day_of_week", 
+category_orders=dict(day_of_week=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]))
 
+fig_bait_bottom = px.histogram(gdf_connections[(gdf_connections["raw_sim_operator_name"]=="BAIT") & (gdf_connections["postal_code"]==f"{cp_bottom.iloc[0]}")], x="day_of_week", 
+category_orders=dict(day_of_week=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]))
+
+fig_bottom.show()
+fig_bait_bottom.show()
+"""
 ```
-
-
