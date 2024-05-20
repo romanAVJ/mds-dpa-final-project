@@ -126,6 +126,8 @@ gdf_connections = (
         f"s3://{BUCKET}/{FOLDER}/{config['aws']['connections-file']}"
     )
 )
+# Obtain the day of the week of each test
+gdf_connections['day_of_week'] = gdf_connections['result_date'].dt.day_name()
 ```
 
 # Participación de mercado
@@ -289,9 +291,9 @@ def top_bottom(region):
         )[["name", "store_name","cve_name","count"]]
     stores.columns = ["Nombre", "Formato", "Estado", "Clientes_reales"]
 
-    print(f"Top 5 tiendas {region}")
+    ICD.display(f"Top 5 tiendas {region}")
     ICD.display(stores.head(n=5))
-    print(f"Bottom 5 tiendas {region}")
+    ICD.display(f"Bottom 5 tiendas {region}")
     ICD.display(stores.tail(n=5))
 
 for zone in zonas_nielsen:
@@ -301,59 +303,119 @@ for zone in zonas_nielsen:
 
 # Análisis temporal
 
+# Distribución de usuarios por día de la semana
 ```{python}
-# Aggregate the day of the week in the data
-gdf_connections['day_of_week'] = gdf_connections['result_date'].dt.day_name()
+# Obtain the number of users per day of the week
+potential_users = (gdf_connections.groupby("day_of_week")
+    .agg(
+        count=("device_id", "count")
+    )
+    .reset_index()
+)
+# Sort the rows by day of the week
+sorted_weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+potential_users['day_of_week'] = pd.Categorical(potential_users['day_of_week'], sorted_weekdays)
+potential_users = potential_users.sort_values("day_of_week")
 
-# Get BAIT user per store
-stores = (gdf_clients_stores_region.sort_values("count", ascending=False)
+# Obtain the number of BAIT users per day of the week
+real_users = (gdf_connections[gdf_connections["raw_sim_operator_name"]=="BAIT"]
+    .groupby("day_of_week")
+    .agg(
+        count=("device_id", "count")
+    )
+    .reset_index()
+)
+# Sort the rows by day of the week
+real_users['day_of_week'] = pd.Categorical(real_users['day_of_week'], sorted_weekdays)
+real_users = real_users.sort_values("day_of_week")
+
+fig, axes = plt.subplots(2, 1, figsize=(12, 12))
+# First plot
+axes[0].bar(potential_users['day_of_week'], potential_users['count'])
+axes[0].set_title('Número de usuarios por día de la semana')
+
+# Second plot
+axes[1].bar(real_users['day_of_week'], real_users['count'])
+axes[1].set_title('Número de usuarios BAIT por día de la semana')
+
+# Adjust layout
+plt.tight_layout()
+
+# Display the plots
+plt.show()
+```
+
+# Tienda A
+```{python}
+def store_user_analysis(PC):
+    # User analysis for a store with PC (Postal Code)
+
+    # Analyze the potential users of the store
+    store_potential_users = (gdf_connections[gdf_connections["postal_code"]==PC]
+        .groupby("day_of_week")
+        .agg(
+            count=("device_id", "count")
+        )
+        .reset_index()
+    )
+
+    # Sort the rows by day of the week
+    store_potential_users['day_of_week'] = (pd
+        .Categorical(store_potential_users['day_of_week'], sorted_weekdays)
+        )
+    store_potential_users = store_potential_users.sort_values("day_of_week")
+
+    # Analyze the real users of the store
+    store_real_users = (gdf_connections[
+            (gdf_connections["raw_sim_operator_name"]=="BAIT") &
+            (gdf_connections["postal_code"]==PC)
+        ]
+        .groupby("day_of_week")
+        .agg(
+            count=("device_id", "count")
+        )
+        .reset_index()
+    )
+
+    # Sort the rows by day of the week
+    store_real_users['day_of_week'] = (pd
+        .Categorical(store_real_users['day_of_week'], sorted_weekdays)
+        )
+    store_real_users = store_real_users.sort_values("day_of_week")
+
+    # Comparison of potential users and real users
+    fig, axes = plt.subplots(2, 1, figsize=(12, 12))
+
+    # Distribution of the number of users per day of the week
+    axes[0].bar(store_potential_users['day_of_week'], store_potential_users['count'])
+    axes[0].set_title('Número de usuarios por día de la semana')
+
+    # Distribution of the number of BAIT users per day of the week
+    axes[1].bar(store_real_users['day_of_week'], store_real_users['count'])
+    axes[1].set_title('Número de usuarios BAIT por día de la semana')
+
+    # Adjust layout
+    plt.tight_layout()
+
+    # Display the plots
+    plt.show()
+
+# Obtain the number of BAIT clients per store based in their PC
+BAIT_users_per_store = (gdf_clients_stores_region.sort_values("count", ascending=False)
         )[["name", "store_name","cve_name","count"]]
-stores.columns = ["Nombre", "Formato", "Estado", "Clientes_reales"]
 
-# Postal code of two stores
-cp_top = gdf_walmart[gdf_walmart["name"]==stores.head(n=1)["Nombre"][0]].postal_code
-cp_bottom = gdf_walmart[gdf_walmart["name"]==stores.tail(n=1)["Nombre"].iloc[0]].postal_code
+BAIT_users_per_store.columns = ["Nombre", "Formato", "Estado", "Clientes_reales"]
 
-"""
-# Comparison between potential users and real users per day of the week
-fig = px.histogram(gdf_connections, x="day_of_week", 
-category_orders=dict(day_of_week=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]))
+# Obtain the postal code of the most and less crowded store
+cp_top = str(gdf_walmart[gdf_walmart["name"]==BAIT_users_per_store.head(n=1)["Nombre"][0]].postal_code.iloc[0])
+cp_bottom = str(gdf_walmart[gdf_walmart["name"]==BAIT_users_per_store.tail(n=1)["Nombre"].iloc[0]].postal_code.iloc[0])
 
-fig_bait = px.histogram(gdf_connections[gdf_connections["raw_sim_operator_name"]=="BAIT"], x="day_of_week", 
-category_orders=dict(day_of_week=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]))
-
-fig.show()
-fig_bait.show()
-"""
-```
-
-
-```{python}
-
-"""
 # User analysis for the most crowded store
-fig_top = px.histogram(gdf_co"nnections[gdf_connections["postal_code"]== f"{cp_top.iloc[0]}"], x="day_of_week", 
-category_orders=dict(day_of_week=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]))
-
-fig_bait_top = px.histogram(gdf_connections[(gdf_connections["raw_sim_operator_name"]=="BAIT") & (gdf_connections["postal_code"]==f"{cp_top.iloc[0]}")], x="day_of_week", 
-category_orders=dict(day_of_week=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]))
-
-fig_top.show()
-fig_bait_top.show()
-
-"""
+store_user_analysis(cp_top)
 ```
 
+## Tienda B
 ```{python}
-"""
 # User analysis for the less crowded store
-fig_bottom = px.histogram(gdf_connections[gdf_connections["postal_code"]== f"{cp_bottom.iloc[0]}"], x="day_of_week", 
-category_orders=dict(day_of_week=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]))
-
-fig_bait_bottom = px.histogram(gdf_connections[(gdf_connections["raw_sim_operator_name"]=="BAIT") & (gdf_connections["postal_code"]==f"{cp_bottom.iloc[0]}")], x="day_of_week", 
-category_orders=dict(day_of_week=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]))
-
-fig_bottom.show()
-fig_bait_bottom.show()
-"""
+store_user_analysis(cp_bottom)
 ```
