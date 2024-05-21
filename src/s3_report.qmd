@@ -7,6 +7,7 @@ format:
 
 # Reporting
 ```{python}
+# Libraries
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -19,11 +20,10 @@ import os
 import yaml
 import boto3
 from IPython import display as ICD
-import plotly.express as px
+```
 
-"""
-Connect to AWS
-"""
+```{python}
+# Configs
 # load environment variables with
 load_dotenv()
 
@@ -45,11 +45,10 @@ session = boto3.Session(
     region_name=AWS_REGION
 )
 s3 = session.client("s3")
+```
 
-"""
-Extract the data
-"""
-
+```{python}
+# S1: Get User Data
 # get users data from S3
 gdf_users = (
     wr.s3.read_parquet(
@@ -64,17 +63,24 @@ gdf_users = (
     .set_crs(epsg=4326)
 )
 
-# Eliminate invalid values of raw_sim_operator_name
-gdf_users = gdf_users[~gdf_users["raw_sim_operator_name"].isin(["TELCEL", "Solo llamadas de emergencia", "Sin servicio", "AT&T", "ALTAN"])]
+# S2: Wrangle Data
+# eliminate invalid values of raw_sim_operator_name
+non_valid_operators = config['report']['non-valid-operators']
+gdf_users = gdf_users[~gdf_users["raw_sim_operator_name"].isin(non_valid_operators)]
 
-# Standarize the name of Megacable
-gdf_users.loc[gdf_users["raw_sim_operator_name"].isin(["Mega 4.5G", "Mega4.5G"]),
-           "raw_sim_operator_name"] = "Megacable"
+# standarize the name of Megacable
+gdf_users.loc[
+    gdf_users["raw_sim_operator_name"].isin(["Mega 4.5G", "Mega4.5G"]), "raw_sim_operator_name"
+    ] = "Megacable"
 
+```
+
+```{python}
+# S1: Get Shape Data
 # download shapefile of states
 gdf_states = (
     wr.s3.read_parquet(
-        "s3://itam-analytics-javier/telecom-outputs/mexico_states.parquet"
+        f"s3://{BUCKET}/{FOLDER}/{config['aws']['states-file']}"
     )
     # pass geometry column from binary to geometry
     .assign(geometry=lambda x: x['geometry'].apply(wkb.loads))
@@ -88,12 +94,14 @@ gdf_states = (
     .sort_values('cve_ent', ignore_index=True)
 )
 
+# S2: Wrangle Data
 # get data of walmart stores
 re_walmart = r"(walmart|wal mart|superama|waltmart)"
 re_sams = r"(sams|sam's|sam s|sam's club|sam s club|sam'sclub|sam sclub|sam club|mi bodega)"
 re_bodega = r"(bodega aurrera|bodega|aurrera|ba|boa|\$b|mb|b )"
 re_supercenter = r"(supercenter|super center)"
 
+# get walmart stores
 gdf_walmart = (
     wr.s3.read_csv(
         f"s3://{BUCKET}/{FOLDER}/{config['aws']['walmart-file']}"
@@ -119,24 +127,26 @@ gdf_walmart = (
              'postal_code', 'cve_ent', 'cve_mun', 'geometry'
             ]]
 )
+```
 
+```{python}
+# S1: Get Connections Data
 # get connections data from S3
 gdf_connections = (
     wr.s3.read_parquet(
         f"s3://{BUCKET}/{FOLDER}/{config['aws']['connections-file']}"
     )
 )
-# Obtain the day of the week of each test
+
+# S2: Wrangle Data
+# obtain the day of the week of each test
 gdf_connections['day_of_week'] = gdf_connections['result_date'].dt.day_name()
 ```
 
 # Participación de mercado
 
 ```{python}
-"""
-Data preprocessing
-"""
-
+# Join Data
 # join users with states
 tbl_users_state = (
     gpd.sjoin_nearest(
@@ -146,83 +156,71 @@ tbl_users_state = (
     .filter(["device_id", "postal_code", "raw_sim_operator_name", "cve_name"])
 )
 
-# Define the dictionary
-zonas_nielsen = {
-    "BAJIO": ["aguascalientes", "jalisco", "guanajuato", "colima", "michoacán"],
-    "PACIFICO": ["baja california", "baja california sur", "sinaloa", "sonora", "nayarit"],
-    "NORTE": ["chihuahua", "coahuila", "durango", "nuevo león", "san luis potosí", "tamaulipas", "zacatecas"],
-    "SURESTE": ["campeche", "chiapas", "oaxaca", "quintana roo", "tabasco", "veracruz", "yucatán"],
-    "CENTRO": ["distrito federal", "guerrero", "hidalgo", "méxico", "morelos", "puebla", "querétaro", "tlaxcala"]
-}
+# define the dictionary
+nielsen_zones = config['report']['nielsen_zones']
 
-# Map the states to their corresponding regions
+# map the states to their corresponding regions
 tbl_users_state['region'] = (
     tbl_users_state['cve_name']
-    .map(lambda x: 
-    next((region for region, states in zonas_nielsen.items() if x.lower() in states),None))
+    .map(
+        lambda x: next((region for region, states in nielsen_zones.items() if x.lower() in states), None)
+        )
 )
 
-# Group by 'raw_sim_operator_name' and count 'device_id', then sort and get the top 10
-operadores = (
+# droup by 'raw_sim_operator_name' and count 'device_id', then sort and get the top 10
+top_operators = (
     tbl_users_state
     .groupby(["raw_sim_operator_name"])['device_id']
     .count()
     .sort_values(ascending=False)
-    .head(n=10)
+    .reset_index()
+    ["raw_sim_operator_name"]
 )
 
-operadores = operadores.reset_index()
+# Wrangle
+# group by 'raw_sim_operator_name' and count 'device_id'
+df_top_operator = tbl_users_state.groupby(["raw_sim_operator_name", "region"])['device_id'].count()
+# convert the Series to a DataFrame
+df_top_operator = df_top_operator.reset_index()
+# rename columns for clarity
+df_top_operator.columns = ['raw_sim_operator_name', "region", 'device_id_count']
+# obtain the total number of users per region
+totales = df_top_operator.groupby("region")["device_id_count"].aggregate(usuarios_region = "sum").reset_index()
+# if not in 10 top operators, then assign 'other'
+df_top_operator.loc[~df_top_operator["raw_sim_operator_name"].isin(top_operators), "raw_sim_operator_name"] = "other"
 
-# Obtain the name of the operators of interest
-operadores = operadores["raw_sim_operator_name"]
-
-# Group by 'raw_sim_operator_name' and count 'device_id'
-gdf_top_operador = tbl_users_state.groupby(["raw_sim_operator_name", "region"])['device_id'].count()
-
-# Convert the Series to a DataFrame
-gdf_top_operador = gdf_top_operador.reset_index()
-
-# Rename columns for clarity
-gdf_top_operador.columns = ['raw_sim_operator_name', "region", 'device_id_count']
-
-# Obtain the total number of users per region
-totales = gdf_top_operador.groupby("region")["device_id_count"].aggregate(usuarios_region = "sum")
-
-totales = totales.reset_index()
-
-# Select only the 10 top operators
-gdf_top_operador = gdf_top_operador[gdf_top_operador['raw_sim_operator_name'].isin(operadores)]
-
-# Merge with the table of totales
-gdf_top_operador = (
-    gdf_top_operador.merge(
+# Merge
+# merge with the table of totales
+df_top_operator = (
+    df_top_operator
+    .merge(
         totales,
         on="region",
-        how="left")
+        how="left"
+    )
 )
 
-# Obtain the participacion_mercado per region
-gdf_top_operador["participacion_mercado"] = gdf_top_operador["device_id_count"]/ gdf_top_operador["usuarios_region"]
-
+# Wrangle P2
+# Get market share
+df_top_operator["market_share"] = df_top_operator["device_id_count"]/ df_top_operator["usuarios_region"]
 # Pivot the DataFrame for the stacked bar chart
-pivot_df = gdf_top_operador.pivot(index='region', columns='raw_sim_operator_name', values='participacion_mercado')
-
+pivot_df = df_top_operator.pivot(index='region', columns='raw_sim_operator_name', values='market_share')
 # Fill NaN values with 0
 pivot_df = pivot_df.fillna(0)
 
-# Plotting the stacked bar chart
+# Plot
+# stacked bar chart
 pivot_df.plot(kind='bar', stacked=True, figsize=(12, 8), colormap='tab20')
-
-# Adding labels and title
+# add labels and title
 plt.xlabel('Estado')
 plt.ylabel('Device ID Count')
 plt.title('Top 10 SIM Operators by Device ID Count per Estado')
 plt.legend(title='SIM Operator Name', bbox_to_anchor=(1.05, 1), loc='upper left')
-
-# Rotate x-axis labels for better readability
-plt.xticks(rotation=45)
-
-# Display the plot
+# y lim
+plt.ylim(0, 1)
+# y in percentage
+plt.gca().set_yticklabels(['{:.0f}%'.format(x*100) for x in plt.gca().get_yticks()])
+# display
 plt.tight_layout()
 plt.show()
 ```
@@ -230,15 +228,15 @@ plt.show()
 # Presencia nacional
 ```{python}
 # Select only BAIT users
-gdf_bait_users = gdf_users[gdf_users["raw_sim_operator_name"]=="BAIT"]
+gdf_bait_users = gdf_users[gdf_users["raw_sim_operator_name"] == "BAIT"]
 
-# join users with stores getting the closest store
+# Join users with stores getting the closest store
 gdf_clients_stores = (
     gpd.sjoin_nearest(
         gdf_bait_users.to_crs("EPSG:6372"), gdf_walmart.to_crs("EPSG:6372"),
     )
     .drop_duplicates(subset=["device_id"])
-    .groupby(["name", "store_name", "id", "cve_ent", "cve_mun"])  # denue_id is the store id
+    .groupby(["name", "store_name", "id", "cve_ent", "cve_mun"])
     .agg(
         count=("device_id", "count")
     )
@@ -255,15 +253,14 @@ gdf_clients_stores = (
 
 # plot states with count of users
 fig, ax = plt.subplots(figsize=(10, 10))
-gdf_states.plot(ax=ax, color='white', edgecolor='black')
-
+gdf_states.plot(ax=ax, color='gray', edgecolor='black')
 gdf_clients_stores.plot(
     ax=ax,
-    markersize=gdf_clients_stores['count'],
+    markersize=1,
     column='count',
     legend=True,
-    cmap='viridis',
-    alpha=0.5
+    cmap='viridis_r',
+    alpha=0.1
 )
 ```
 
@@ -281,7 +278,7 @@ gdf_clients_stores_region = (
 gdf_clients_stores_region['region'] = (
     gdf_clients_stores_region['cve_name']
     .map(lambda x: 
-    next((region for region, states in zonas_nielsen.items() if x.lower() in states),None))
+    next((region for region, states in nielsen_zones.items() if x.lower() in states),None))
 )
 
 # Function to print the top 5 and bottom 5 per region
@@ -296,7 +293,7 @@ def top_bottom(region):
     ICD.display(f"Bottom 5 tiendas {region}")
     ICD.display(stores.tail(n=5))
 
-for zone in zonas_nielsen:
+for zone in nielsen_zones:
     top_bottom(zone)
     print("\n")
 ```
@@ -306,19 +303,8 @@ for zone in zonas_nielsen:
 # Distribución de usuarios por día de la semana
 ```{python}
 # Obtain the number of users per day of the week
-potential_users = (gdf_connections.groupby("day_of_week")
-    .agg(
-        count=("device_id", "count")
-    )
-    .reset_index()
-)
-# Sort the rows by day of the week
-sorted_weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-potential_users['day_of_week'] = pd.Categorical(potential_users['day_of_week'], sorted_weekdays)
-potential_users = potential_users.sort_values("day_of_week")
-
-# Obtain the number of BAIT users per day of the week
-real_users = (gdf_connections[gdf_connections["raw_sim_operator_name"]=="BAIT"]
+potential_users = (
+    gdf_connections
     .groupby("day_of_week")
     .agg(
         count=("device_id", "count")
@@ -326,32 +312,53 @@ real_users = (gdf_connections[gdf_connections["raw_sim_operator_name"]=="BAIT"]
     .reset_index()
 )
 # Sort the rows by day of the week
-real_users['day_of_week'] = pd.Categorical(real_users['day_of_week'], sorted_weekdays)
-real_users = real_users.sort_values("day_of_week")
+sorted_weekdays = config['report']['weekdays']
+potential_users['day_of_week'] = pd.Categorical(potential_users['day_of_week'], sorted_weekdays)
+potential_users = potential_users.sort_values("day_of_week")
 
+# Obtain the number of BAIT users per day of the week
+df_real_users = (
+    gdf_connections
+    [gdf_connections["raw_sim_operator_name"] == "BAIT"]
+    .groupby("day_of_week")
+    .agg(
+        count=("device_id", "count")
+    )
+    .reset_index()
+)
+# Sort the rows by day of the week
+df_real_users['day_of_week'] = pd.Categorical(df_real_users['day_of_week'], sorted_weekdays)
+df_real_users = df_real_users.sort_values("day_of_week")
+
+# Plot
 fig, axes = plt.subplots(2, 1, figsize=(12, 12))
 # First plot
 axes[0].bar(potential_users['day_of_week'], potential_users['count'])
 axes[0].set_title('Número de usuarios por día de la semana')
 
 # Second plot
-axes[1].bar(real_users['day_of_week'], real_users['count'])
+axes[1].bar(df_real_users['day_of_week'], df_real_users['count'])
 axes[1].set_title('Número de usuarios BAIT por día de la semana')
 
 # Adjust layout
 plt.tight_layout()
-
-# Display the plots
+# Display
 plt.show()
 ```
 
 # Tienda A
 ```{python}
-def store_user_analysis(PC):
-    # User analysis for a store with PC (Postal Code)
-
+def store_user_analysis(postal_code: str) -> None:
+    """
+    Function to analyze the potential and real users of a store based on the postal code.
+    ---
+    postal_code: str
+        Postal code of the store.
+    """
     # Analyze the potential users of the store
-    store_potential_users = (gdf_connections[gdf_connections["postal_code"]==PC]
+    df_store_potential_users = (
+        gdf_connections
+        [gdf_connections["postal_code"] == postal_code]
         .groupby("day_of_week")
         .agg(
             count=("device_id", "count")
@@ -360,15 +367,16 @@ def store_user_analysis(PC):
     )
 
     # Sort the rows by day of the week
-    store_potential_users['day_of_week'] = (pd
-        .Categorical(store_potential_users['day_of_week'], sorted_weekdays)
+    df_store_potential_users['day_of_week'] = (
+        pd.Categorical(df_store_potential_users['day_of_week'], sorted_weekdays)
         )
-    store_potential_users = store_potential_users.sort_values("day_of_week")
+    df_store_potential_users = df_store_potential_users.sort_values("day_of_week")
 
     # Analyze the real users of the store
-    store_real_users = (gdf_connections[
-            (gdf_connections["raw_sim_operator_name"]=="BAIT") &
-            (gdf_connections["postal_code"]==PC)
+    df_store_real_users = (
+        gdf_connections[
+            (gdf_connections["raw_sim_operator_name"] == "BAIT") &
+            (gdf_connections["postal_code"] == postal_code)
         ]
         .groupby("day_of_week")
         .agg(
@@ -378,44 +386,49 @@ def store_user_analysis(PC):
     )
 
     # Sort the rows by day of the week
-    store_real_users['day_of_week'] = (pd
-        .Categorical(store_real_users['day_of_week'], sorted_weekdays)
+    df_store_real_users['day_of_week'] = (pd
+        .Categorical(df_store_real_users['day_of_week'], sorted_weekdays)
         )
-    store_real_users = store_real_users.sort_values("day_of_week")
+    df_store_real_users = df_store_real_users.sort_values("day_of_week")
 
+    # Plot
     # Comparison of potential users and real users
     fig, axes = plt.subplots(2, 1, figsize=(12, 12))
 
     # Distribution of the number of users per day of the week
-    axes[0].bar(store_potential_users['day_of_week'], store_potential_users['count'])
+    axes[0].bar(df_store_potential_users['day_of_week'], df_store_potential_users['count'])
     axes[0].set_title('Número de usuarios por día de la semana')
 
     # Distribution of the number of BAIT users per day of the week
-    axes[1].bar(store_real_users['day_of_week'], store_real_users['count'])
+    axes[1].bar(df_store_real_users['day_of_week'], df_store_real_users['count'])
     axes[1].set_title('Número de usuarios BAIT por día de la semana')
 
     # Adjust layout
     plt.tight_layout()
 
-    # Display the plots
+    # Display
     plt.show()
 
-# Obtain the number of BAIT clients per store based in their PC
-BAIT_users_per_store = (gdf_clients_stores_region.sort_values("count", ascending=False)
-        )[["name", "store_name","cve_name","count"]]
+# Obtain the number of BAIT clients per store based in their postal_code
+df_bait_users_per_store = (
+    gdf_clients_stores_region
+    .sort_values("count", ascending=False)
+    [["name", "store_name","cve_name","count"]]
+    )
 
-BAIT_users_per_store.columns = ["Nombre", "Formato", "Estado", "Clientes_reales"]
+# columns in spanish for better understanding
+df_bait_users_per_store.columns = ["Nombre", "Formato", "Estado", "Clientes_reales"]
 
 # Obtain the postal code of the most and less crowded store
-cp_top = str(gdf_walmart[gdf_walmart["name"]==BAIT_users_per_store.head(n=1)["Nombre"][0]].postal_code.iloc[0])
-cp_bottom = str(gdf_walmart[gdf_walmart["name"]==BAIT_users_per_store.tail(n=1)["Nombre"].iloc[0]].postal_code.iloc[0])
+top_postal_code = str(gdf_walmart[gdf_walmart["name"] == df_bait_users_per_store.head(n=1)["Nombre"][0]].postal_code.iloc[0])
+bottom_postal_code = str(gdf_walmart[gdf_walmart["name"] == df_bait_users_per_store.tail(n=1)["Nombre"].iloc[0]].postal_code.iloc[0])
 
 # User analysis for the most crowded store
-store_user_analysis(cp_top)
+store_user_analysis(top_postal_code)
 ```
 
 ## Tienda B
 ```{python}
 # User analysis for the less crowded store
-store_user_analysis(cp_bottom)
+store_user_analysis(bottom_postal_code)
 ```
