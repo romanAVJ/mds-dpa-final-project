@@ -2,10 +2,14 @@
 title: "BAIT"
 format: 
     html:
-        code-fold: true
+        echo: false
+        warning: false
 ---
 
-# Reporting
+# Reporte mensual por tienda
+
+¡Hola, Operador! Este reporte está creado para darte la visibilidad del estatus de los usuarios de Bait de tu operación. El objetivo del mismo es dar las herramientas mínimas necesarias para que puedas crear estrategias en torno a Bait y tu operación. Recuerda que somos el Operador Móvil Virtual Número 1 en México. ¡Vamos por las ventas!
+
 ```{python}
 import pandas as pd
 import numpy as np
@@ -19,7 +23,6 @@ import os
 import yaml
 import boto3
 from IPython import display as ICD
-import plotly.express as px
 
 """
 Connect to AWS
@@ -50,7 +53,7 @@ s3 = session.client("s3")
 Extract the data
 """
 
-# get users data from S3
+# Get Users data from S3
 gdf_users = (
     wr.s3.read_parquet(
         f"s3://{BUCKET}/{FOLDER}/{config['aws']['users-file']}"
@@ -128,9 +131,36 @@ gdf_connections = (
 )
 # Obtain the day of the week of each test
 gdf_connections['day_of_week'] = gdf_connections['result_date'].dt.day_name()
+
+# Translate the days to Spanish
+def days_to_Spanish(argument):
+    days = {
+        "Monday": "Lunes",
+        "Tuesday": "Martes",
+        "Wednesday": "Miércoles",
+        "Thursday": "Jueves",
+        "Friday": "Viernes",
+        "Saturday": "Sábado",
+        "Sunday": "Domingo"
+    }
+    return days.get(argument, "error")
+
+gdf_connections['day_of_week'] = gdf_connections['day_of_week'].apply(days_to_Spanish)
 ```
 
 # Participación de mercado
+
+Zonas Nielsen:
+
+-   BAJÍO: Aguascalientes, Jalisco, Guanajuato, Colima, Michoacán
+
+-   PACÍFICO: Baja California, Baja California Sur, Sinaloa, Sonora, Nayarit
+
+-   NORTE: Chihuahua, Coahuila, Durango, Nuevo León, San Luis Potosí, Tamaulipas, Zacatecas
+
+-   SURESTE: Campeche, Chiapas, Oaxaca, Quintana Roo, Tabasco, Veracruz, Yucatán
+
+-   CENTRO: CDMX, Guerrero, Hidalgo, EDOMEX, Morelos, Puebla, Querétaro, Tlaxcala
 
 ```{python}
 """
@@ -169,26 +199,28 @@ operadores = (
     .count()
     .sort_values(ascending=False)
     .head(n=10)
+    .reset_index()
 )
-
-operadores = operadores.reset_index()
 
 # Obtain the name of the operators of interest
 operadores = operadores["raw_sim_operator_name"]
 
-# Group by 'raw_sim_operator_name' and count 'device_id'
-gdf_top_operador = tbl_users_state.groupby(["raw_sim_operator_name", "region"])['device_id'].count()
-
-# Convert the Series to a DataFrame
-gdf_top_operador = gdf_top_operador.reset_index()
+# Group by 'raw_sim_operator_name' and 'region' and count 'device_id'
+gdf_top_operador = (
+    tbl_users_state.groupby(["raw_sim_operator_name", "region"])['device_id']
+    .count()
+    .reset_index()
+)
 
 # Rename columns for clarity
 gdf_top_operador.columns = ['raw_sim_operator_name', "region", 'device_id_count']
 
 # Obtain the total number of users per region
-totales = gdf_top_operador.groupby("region")["device_id_count"].aggregate(usuarios_region = "sum")
-
-totales = totales.reset_index()
+totales = (
+    gdf_top_operador.groupby("region")["device_id_count"]
+    .aggregate(usuarios_region = "sum")
+    .reset_index()
+)
 
 # Select only the 10 top operators
 gdf_top_operador = gdf_top_operador[gdf_top_operador['raw_sim_operator_name'].isin(operadores)]
@@ -204,6 +236,17 @@ gdf_top_operador = (
 # Obtain the participacion_mercado per region
 gdf_top_operador["participacion_mercado"] = gdf_top_operador["device_id_count"]/ gdf_top_operador["usuarios_region"]
 
+# Filter the market share of bait in each region and select the maximum and minimum
+bait_share = gdf_top_operador[gdf_top_operador["raw_sim_operator_name"]=="BAIT"]
+# Maximum and minimum share
+max_p = max(bait_share.participacion_mercado)
+min_p = min(bait_share.participacion_mercado)
+# Obtain the best and worst region based on the share market
+best_region = bait_share[bait_share["participacion_mercado"]==max_p].region.iloc[0]
+worst_region = bait_share[bait_share["participacion_mercado"]==min_p].region.iloc[0]
+best_region_p = round(max_p*100,2)
+worst_region_p = round(min_p*100,2)
+
 # Pivot the DataFrame for the stacked bar chart
 pivot_df = gdf_top_operador.pivot(index='region', columns='raw_sim_operator_name', values='participacion_mercado')
 
@@ -211,13 +254,13 @@ pivot_df = gdf_top_operador.pivot(index='region', columns='raw_sim_operator_name
 pivot_df = pivot_df.fillna(0)
 
 # Plotting the stacked bar chart
-pivot_df.plot(kind='bar', stacked=True, figsize=(12, 8), colormap='tab20')
+pivot_df.plot(kind='bar', stacked=True, colormap='tab20')
 
 # Adding labels and title
-plt.xlabel('Estado')
-plt.ylabel('Device ID Count')
-plt.title('Top 10 SIM Operators by Device ID Count per Estado')
-plt.legend(title='SIM Operator Name', bbox_to_anchor=(1.05, 1), loc='upper left')
+plt.xlabel('Zona')
+plt.ylabel('Porcentaje de los usuarios de la red de ALTÁN')
+plt.title('Top 10 MVOs a nivel nacional')
+plt.legend(title='Operador Virtual Móvil', bbox_to_anchor=(1.05, 1), loc='upper left')
 
 # Rotate x-axis labels for better readability
 plt.xticks(rotation=45)
@@ -227,12 +270,19 @@ plt.tight_layout()
 plt.show()
 ```
 
+Tomando en cuenta a todos los Operadores Móviles Virtuales (OMVs) de la red de ALTÁN, podemos visualizar la participación de Bait vs los otros operadores del mercado. Es evidente que en todas las zonas del país Bait es el OMV número 1. La zona con mayor participación es `{python} best_region` con un `{python} best_region_p`%, por otro lado, la zona con menor participación es `{python} worst_region` con un `{python} worst_region_p`%. Con esto, se recomienda replicar la estrategia de venta que está generado la zona `{python} best_region` en `{python} worst_region` .
+
+Por otro lado, a nivel nacional los siguientes 4 OMVs con mayor participación de mercado son `{python} operadores[1]`, `{python} operadores[2]`, `{python} operadores[3]` y `{python} operadores[4]`. Es imperante entender qué están haciendo estos operadores en las zonas que están teniendo más penetración para que Bait mantenga su posición en el mercado.
+
 # Presencia nacional
+
+En el siguiente mapa se puede observar la presencia nacional de Bait en cada una de las tiendas (puntos de venta). El tamaño de la burbuja nos indica el número de clientes Bait por tienda. Para decidir si un cliente Bait es de una tienda en específico a cada conexión registrada en la base de datos se le asigna la tienda más cercana. Posteriormente, a cada usuario registrado, se le asigna la tienda donde se hayan registrado el mayor número de conexiones.
+
 ```{python}
 # Select only BAIT users
 gdf_bait_users = gdf_users[gdf_users["raw_sim_operator_name"]=="BAIT"]
 
-# join users with stores getting the closest store
+# Join BAIT users with stores getting the closest store
 gdf_clients_stores = (
     gpd.sjoin_nearest(
         gdf_bait_users.to_crs("EPSG:6372"), gdf_walmart.to_crs("EPSG:6372"),
@@ -262,12 +312,42 @@ gdf_clients_stores.plot(
     markersize=gdf_clients_stores['count'],
     column='count',
     legend=True,
-    cmap='viridis',
-    alpha=0.5
+    cmap='Reds'
 )
 ```
 
+Como se puede observar el centro del país es donde se tiene un mayor número de clientes Bait, lo cual está relacionado a la cantidad de unidades en la región. Lo anterior nos confirma la alta dependencia que tenemos de los puntos de venta físicos para seguir generando nuevos usuarios, le sigue la región sureste y por último la región norte, la cual tiene el menor número de clientes activos Bait.
+
 # Análisis de tiendas por region
+
+```{python}
+bodega_top = (gdf_clients_stores[gdf_clients_stores["store_name"]=="bodega aurrera"]
+    .sort_values("count", ascending=False)
+    .name
+    .iloc[0]
+)
+
+walmart_top = (gdf_clients_stores[(gdf_clients_stores["store_name"]=="supercenter") |
+    (gdf_clients_stores["store_name"]=="walmart")]
+    .sort_values("count", ascending=False)
+    .name
+    .iloc[0]
+)
+
+sams_top = (gdf_clients_stores[gdf_clients_stores["store_name"]=="sams"]
+    .sort_values("count", ascending=False)
+    .name
+    .iloc[0]
+)
+```
+
+Es importante replicar las buenas prácticas que están realizando las tiendas con mayor número de usuarios, asimismo, es imperante que las tiendas con menor número de usuarios ejecuten nuevas estrategias para no distanciarse más de las mejores. A nivel nacional las tiendas top por formato son:
+
+-   Bodega Aurrera: `{python} bodega_top`
+-   Walmart Supercenter: `{python} walmart_top`
+-   Sams: `{python} sams_top`
+
+A continuación, se verán las 5 tiendas Top vs 5 tiendas Bottom de cada una de las Zonas Nielsen del país:
 
 ```{python}
 # join users with states
@@ -304,6 +384,7 @@ for zone in zonas_nielsen:
 # Análisis temporal
 
 # Distribución de usuarios por día de la semana
+
 ```{python}
 # Obtain the number of users per day of the week
 potential_users = (gdf_connections.groupby("day_of_week")
@@ -313,9 +394,25 @@ potential_users = (gdf_connections.groupby("day_of_week")
     .reset_index()
 )
 # Sort the rows by day of the week
-sorted_weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+sorted_weekdays = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
 potential_users['day_of_week'] = pd.Categorical(potential_users['day_of_week'], sorted_weekdays)
 potential_users = potential_users.sort_values("day_of_week")
+
+# Filter the day with more traffic
+max_traffic = max(potential_users["count"])
+best_day = (
+    potential_users[potential_users["count"]== max_traffic]
+    .day_of_week
+    .iloc[0]
+)
+
+# Filter the day with less traffic
+less_traffic = max(potential_users["count"])
+worst_day = (
+    potential_users[potential_users["count"]== less_traffic]
+    .day_of_week
+    .iloc[0]
+)
 
 # Obtain the number of BAIT users per day of the week
 real_users = (gdf_connections[gdf_connections["raw_sim_operator_name"]=="BAIT"]
@@ -328,15 +425,23 @@ real_users = (gdf_connections[gdf_connections["raw_sim_operator_name"]=="BAIT"]
 # Sort the rows by day of the week
 real_users['day_of_week'] = pd.Categorical(real_users['day_of_week'], sorted_weekdays)
 real_users = real_users.sort_values("day_of_week")
+```
 
-fig, axes = plt.subplots(2, 1, figsize=(12, 12))
+Debido a que se tienen todas las conexiones de los usuarios de todos los OMVs, podemos identificar clientes potenciales para cada tienda con base en el número de usuarios que están activos en el mismo código postal de la unidad. Por ello, podemos identificar qué día de la semana hay más clientes potenciales vs el día con menor número. Por otro lado, se puede visualizar el mismo comportamiento, pero con el número de clientes Bait. Al realizar este contraste, podemos ver que el día que más usuarios potenciales están cercanos a la unidad es el `{python} best_day`, por el contrario, el día con menos usuarios potenciales, en el cual se podrían crear distintas estrategias para incentivar la presencia de más clientes es el `{python} worst_day`.
+
+```{python}
+fig, axes = plt.subplots(2, 1)
 # First plot
 axes[0].bar(potential_users['day_of_week'], potential_users['count'])
 axes[0].set_title('Número de usuarios por día de la semana')
+# Rotate x-axis labels for better readability
+axes[0].set_xticklabels(potential_users['day_of_week'], rotation=45)
 
 # Second plot
 axes[1].bar(real_users['day_of_week'], real_users['count'])
-axes[1].set_title('Número de usuarios BAIT por día de la semana')
+axes[1].set_title('Número de usuarios Bait por día de la semana')
+# Rotate y-axis labels for better readability
+axes[1].set_xticklabels(real_users['day_of_week'], rotation=45)
 
 # Adjust layout
 plt.tight_layout()
@@ -345,7 +450,106 @@ plt.tight_layout()
 plt.show()
 ```
 
-# Tienda A
+```{python}
+# Join users with stores getting the closest store
+users_per_store = (
+    gpd.sjoin_nearest(
+        gdf_users.to_crs("EPSG:6372"), gdf_walmart.to_crs("EPSG:6372"),
+    )
+    .drop_duplicates(subset=["device_id"])
+    .groupby(["name", "store_name", "id", "cve_ent", "cve_mun"])  # denue_id is the store id
+    .agg(
+        count=("device_id", "count")
+    )
+    .reset_index()
+    .sort_values("count", ascending=False)
+    .merge(
+        gdf_walmart.loc[:, ["id", "geometry"]],
+        on="id",
+        how="left"
+    )
+    .pipe(gpd.GeoDataFrame)
+    .set_crs(epsg=4326)
+)
+
+# Select the columns of interest
+users_per_store = users_per_store[["name", "store_name", "count"]]
+
+users_per_store.columns = ["Nombre", "Formato", "Clientes_potenciales"]
+
+# Obtain the postal code of the most and less crowded store
+cp_top = str(gdf_walmart[gdf_walmart["name"]==users_per_store.head(n=1)["Nombre"][0]].postal_code.iloc[0])
+cp_bottom = str(gdf_walmart[gdf_walmart["name"]==users_per_store.tail(n=3)["Nombre"].iloc[0]].postal_code.iloc[0])
+
+## User analysis for the most crowded store
+
+# Obtain the number of users per day of the week
+potential_users_top = (gdf_connections[gdf_connections["postal_code"]==cp_top]
+    .groupby("day_of_week")
+    .agg(
+        count=("device_id", "count")
+    )
+    .reset_index()
+)
+# Sort the rows by day of the week
+
+potential_users_top['day_of_week'] = pd.Categorical(potential_users_top['day_of_week'], sorted_weekdays)
+potential_users_top = potential_users_top.sort_values("day_of_week")
+
+# Filter the day with more traffic
+max_traffic_top = max(potential_users_top["count"])
+best_day_traffic_top = (
+    potential_users_top[potential_users_top["count"]== max_traffic_top]
+    .day_of_week
+    .iloc[0]
+)
+
+# Filter the day with less traffic
+less_traffic_top = max(potential_users_top["count"])
+worst_day_traffic_top = (
+    potential_users_top[potential_users_top["count"]== less_traffic_top]
+    .day_of_week
+    .iloc[0]
+)
+
+# Obtain the number of BAIT users per day of the week
+real_users_top = (gdf_connections[(gdf_connections["raw_sim_operator_name"]=="BAIT") &
+    (gdf_connections["postal_code"]==cp_top)]
+    .groupby("day_of_week")
+    .agg(
+        count=("device_id", "count")
+    )
+    .reset_index()
+)
+# Sort the rows by day of the week
+real_users_top['day_of_week'] = pd.Categorical(real_users_top['day_of_week'], sorted_weekdays)
+real_users_top = real_users_top.sort_values("day_of_week")
+
+# Filter the day with more users
+max_users_top = max(potential_users_top["count"])
+best_day_users_top = (
+    potential_users_top[potential_users_top["count"]== max_users_top]
+    .day_of_week
+    .iloc[0]
+)
+
+# Filter the day with less users
+less_users_top = max(potential_users_top["count"])
+worst_day_users_top = (
+    potential_users_top[potential_users_top["count"]== less_users_top]
+    .day_of_week
+    .iloc[0]
+)
+```
+
+# Tienda Top: `{python} users_per_store.head(n=1)["Nombre"][0]`
+
+Esta tienda es del formato `{python} users_per_store.head(n=1)["Formato"][0]`, la cual tiene `{python} users_per_store.head(n=1)["Clientes_potenciales"][0]` usuarios activos.
+
+-   Total Población:El día con más usuarios es el `{python} best_day_traffic_top`, por el contrario, el día con menos usuarios es el `{python} worst_day_traffic_top`
+
+-   Usuarios Bait: El día con más usuarios es el `{python} best_day_users_top`, por el contrario, el día con menos usuarios es el `{python} worst_day_users_top`
+
 ```{python}
 def store_user_analysis(PC):
     # User analysis for a store with PC (Postal Code)
@@ -384,15 +588,18 @@ def store_user_analysis(PC):
     store_real_users = store_real_users.sort_values("day_of_week")
 
     # Comparison of potential users and real users
-    fig, axes = plt.subplots(2, 1, figsize=(12, 12))
+    fig, axes = plt.subplots(2, 1)
 
     # Distribution of the number of users per day of the week
     axes[0].bar(store_potential_users['day_of_week'], store_potential_users['count'])
     axes[0].set_title('Número de usuarios por día de la semana')
+    # Rotate x-axis labels for better readability
+    axes[0].set_xticklabels(store_potential_users['day_of_week'], rotation=45)
 
     # Distribution of the number of BAIT users per day of the week
     axes[1].bar(store_real_users['day_of_week'], store_real_users['count'])
-    axes[1].set_title('Número de usuarios BAIT por día de la semana')
+    axes[1].set_title('Número de usuarios Bait por día de la semana')
+    axes[1].set_xticklabels(store_real_users['day_of_week'], rotation=45)
 
     # Adjust layout
     plt.tight_layout()
@@ -400,21 +607,78 @@ def store_user_analysis(PC):
     # Display the plots
     plt.show()
 
-# Obtain the number of BAIT clients per store based in their PC
-BAIT_users_per_store = (gdf_clients_stores_region.sort_values("count", ascending=False)
-        )[["name", "store_name","cve_name","count"]]
-
-BAIT_users_per_store.columns = ["Nombre", "Formato", "Estado", "Clientes_reales"]
-
-# Obtain the postal code of the most and less crowded store
-cp_top = str(gdf_walmart[gdf_walmart["name"]==BAIT_users_per_store.head(n=1)["Nombre"][0]].postal_code.iloc[0])
-cp_bottom = str(gdf_walmart[gdf_walmart["name"]==BAIT_users_per_store.tail(n=1)["Nombre"].iloc[0]].postal_code.iloc[0])
-
-# User analysis for the most crowded store
 store_user_analysis(cp_top)
 ```
 
-## Tienda B
+```{python}
+## User analysis for the less crowded store
+
+# Obtain the number of users per day of the week
+potential_users_bottom = (gdf_connections[gdf_connections["postal_code"]==cp_bottom]
+    .groupby("day_of_week")
+    .agg(
+        count=("device_id", "count")
+    )
+    .reset_index()
+)
+# Sort the rows by day of the week
+potential_users_bottom['day_of_week'] = pd.Categorical(potential_users_bottom['day_of_week'], sorted_weekdays)
+potential_users_bottom = potential_users_bottom.sort_values("day_of_week")
+
+# Filter the day with more traffic
+max_traffic_bottom = max(potential_users_bottom["count"])
+best_day_traffic_bottom = (
+    potential_users_bottom[potential_users_bottom["count"]== max_traffic_bottom]
+    .day_of_week
+    .iloc[0]
+)
+
+# Filter the day with less traffic
+less_traffic_bottom = max(potential_users_bottom["count"])
+worst_day_traffic_bottom = (
+    potential_users_bottom[potential_users_bottom["count"]== less_traffic_bottom]
+    .day_of_week
+    .iloc[0]
+)
+
+# Obtain the number of BAIT users per day of the week
+real_users_bottom = (gdf_connections[(gdf_connections["raw_sim_operator_name"]=="BAIT") &
+    (gdf_connections["postal_code"]==cp_bottom)]
+    .groupby("day_of_week")
+    .agg(
+        count=("device_id", "count")
+    )
+    .reset_index()
+)
+# Sort the rows by day of the week
+real_users_bottom['day_of_week'] = pd.Categorical(real_users_bottom['day_of_week'], sorted_weekdays)
+real_users_bottom = real_users_bottom.sort_values("day_of_week")
+
+# Filter the day with more users
+max_users_bottom = max(potential_users_bottom["count"])
+best_day_users_bottom = (
+    potential_users_bottom[potential_users_bottom["count"]== max_users_bottom]
+    .day_of_week
+    .iloc[0]
+)
+
+# Filter the day with less users
+less_users_bottom = max(potential_users_bottom["count"])
+worst_day_users_bottom = (
+    potential_users_bottom[potential_users_bottom["count"]== less_users_bottom]
+    .day_of_week
+    .iloc[0]
+)
+```
+
+# Tienda bottom: `{python} users_per_store.tail(n=3)["Nombre"][0]`
+
+Esta tienda es del formato `{python} users_per_store.tail(n=3)["Formato"][0]`, la cual tiene `{python} users_per_store.tail(n=3)["Clientes_potenciales"][0]` usuarios activos.
+
+-   Total Población:El día con más usuarios es el `{python} best_day_traffic_bottom`, por el contrario, el día con menos usuarios es el `{python} worst_day_traffic_bottom`
+
+-   Usuarios Bait: El día con más usuarios es el `{python} best_day_users_bottom`, por el contrario, el día con menos usuarios es el `{python} worst_day_users_bottom`
+
 ```{python}
 # User analysis for the less crowded store
 store_user_analysis(cp_bottom)
