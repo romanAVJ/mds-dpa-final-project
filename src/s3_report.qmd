@@ -173,36 +173,17 @@ top_operators = (
     .groupby(["raw_sim_operator_name"])['device_id']
     .count()
     .sort_values(ascending=False)
+    .head(10)
     .reset_index()
     ["raw_sim_operator_name"]
 )
 
 # Wrangle
+tbl_users_state.loc[~tbl_users_state["raw_sim_operator_name"].isin(top_operators), "raw_sim_operator_name"] = "other"
 # group by 'raw_sim_operator_name' and count 'device_id'
-df_top_operator = tbl_users_state.groupby(["raw_sim_operator_name", "region"])['device_id'].count()
-# convert the Series to a DataFrame
-df_top_operator = df_top_operator.reset_index()
-# rename columns for clarity
-df_top_operator.columns = ['raw_sim_operator_name', "region", 'device_id_count']
-# obtain the total number of users per region
-totales = df_top_operator.groupby("region")["device_id_count"].aggregate(usuarios_region = "sum").reset_index()
-# if not in 10 top operators, then assign 'other'
-df_top_operator.loc[~df_top_operator["raw_sim_operator_name"].isin(top_operators), "raw_sim_operator_name"] = "other"
-
-# Merge
-# merge with the table of totales
-df_top_operator = (
-    df_top_operator
-    .merge(
-        totales,
-        on="region",
-        how="left"
-    )
-)
-
-# Wrangle P2
+df_top_operator = tbl_users_state.groupby(["raw_sim_operator_name", "region"])['device_id'].count().reset_index()
 # Get market share
-df_top_operator["market_share"] = df_top_operator["device_id_count"]/ df_top_operator["usuarios_region"]
+df_top_operator["market_share"] = df_top_operator.groupby("region")["device_id"].transform(lambda x: x / x.sum())
 # Pivot the DataFrame for the stacked bar chart
 pivot_df = df_top_operator.pivot(index='region', columns='raw_sim_operator_name', values='market_share')
 # Fill NaN values with 0
