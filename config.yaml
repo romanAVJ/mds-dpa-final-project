@@ -3,5 +3,58 @@ aws:
   users-file: 'user_location/'
   walmart-file: 'walmart.csv'
   municipalities-file: 'Municipios/'
-  states-file: 'Estados/'
+  states-file: 'mexico_states.parquet'
   connections-file: 'user_connection/'
+report:
+  non-valid-operators:
+    - TELCEL
+    - Solo llamadas de emergencia
+    - Sin servicio
+    - AT&T
+    - ALTAN
+  nielsen_zones:
+    BAJIO:
+      - aguascalientes
+      - jalisco
+      - guanajuato
+      - colima
+      - michoacán
+    PACIFICO:
+      - baja california
+      - baja california sur
+      - sinaloa
+      - sonora
+      - nayarit
+    NORTE:
+      - chihuahua
+      - coahuila
+      - durango
+      - nuevo león
+      - san luis potosí
+      - tamaulipas
+      - zacatecas
+    SURESTE:
+      - campeche
+      - chiapas
+      - oaxaca
+      - quintana roo
+      - tabasco
+      - veracruz
+      - yucatán
+    CENTRO:
+      - distrito federal
+      - guerrero
+      - hidalgo
+      - méxico
+      - morelos
+      - puebla
+      - querétaro
+      - tlaxcala
+  weekdays:
+    - Lunes
+    - Martes
+    - Miércoles
+    - Jueves
+    - Viernes
+    - Sábado
+    - Domingo
