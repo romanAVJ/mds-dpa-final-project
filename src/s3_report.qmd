@@ -234,12 +234,12 @@ worst_region_p = round(min_p*100,2)
 
 # Plot
 # stacked bar chart
-pivot_df.plot(kind='bar', stacked=True, figsize=(12, 8), colormap='tab20')
+pivot_df.plot(kind='bar', stacked=True, colormap='tab20')
 # add labels and title
-plt.xlabel('Estado')
-plt.ylabel('Device ID Count')
-plt.title('Top 10 SIM Operators by Device ID Count per Estado')
-plt.legend(title='SIM Operator Name', bbox_to_anchor=(1.05, 1), loc='upper left')
+plt.xlabel('Zona')
+plt.ylabel('Porcentaje de los usuarios de la red de ALTÁN')
+plt.title('Top 10 MVOs a nivel nacional')
+plt.legend(title='Operador Virtual Móvil', bbox_to_anchor=(1.05, 1), loc='upper left')
 # y lim
 plt.ylim(0, 1)
 # y in percentage
@@ -421,8 +421,14 @@ df_real_users = (
 df_real_users['day_of_week'] = pd.Categorical(df_real_users['day_of_week'], sorted_weekdays)
 df_real_users = df_real_users.sort_values("day_of_week")
 
+potential_users['day_of_week'] = potential_users['day_of_week'].astype(str)
+potential_users['count'] = pd.to_numeric(potential_users['count'], errors='coerce')
+
+df_real_users['day_of_week'] = df_real_users['day_of_week'].astype(str)
+df_real_users['count'] = pd.to_numeric(df_real_users['count'], errors='coerce')
+
 # Plot
-fig, axes = plt.subplots(2, 1, figsize=(6, 6))
+fig, axes = plt.subplots(2, 1)
 # First plot
 axes[0].bar(potential_users['day_of_week'], potential_users['count'])
 axes[0].set_title('Número de usuarios por día de la semana')
@@ -450,18 +456,78 @@ df_bait_users_per_store = (
 # columns in spanish for better understanding
 df_bait_users_per_store.columns = ["Nombre", "Formato", "Estado", "Clientes_reales"]
 
-# Obtain the postal code of the most and less crowded store
+# Obtain the postal code of the most crowded store
 top_postal_code = str(gdf_walmart[gdf_walmart["name"] == df_bait_users_per_store.head(n=1)["Nombre"][0]].postal_code.iloc[0])
-bottom_postal_code = str(gdf_walmart[gdf_walmart["name"] == df_bait_users_per_store.tail(n=1)["Nombre"].iloc[0]].postal_code.iloc[0])
+
+## User analysis for the most crowded store
+
+# Obtain the number of users per day of the week
+potential_users_top = (gdf_connections[gdf_connections["postal_code"]==top_postal_code]
+    .groupby("day_of_week")
+    .agg(
+        count=("device_id", "count")
+    )
+    .reset_index()
+)
+# Sort the rows by day of the week
+
+potential_users_top['day_of_week'] = pd.Categorical(potential_users_top['day_of_week'], sorted_weekdays)
+potential_users_top = potential_users_top.sort_values("day_of_week")
+
+# Filter the day with more traffic
+max_traffic_top = max(potential_users_top["count"])
+best_day_traffic_top = (
+    potential_users_top[potential_users_top["count"]== max_traffic_top]
+    .day_of_week
+    .iloc[0]
+)
+
+# Filter the day with less traffic
+less_traffic_top = min(potential_users_top["count"])
+worst_day_traffic_top = (
+    potential_users_top[potential_users_top["count"]== less_traffic_top]
+    .day_of_week
+    .iloc[0]
+)
+
+# Obtain the number of BAIT users per day of the week
+real_users_top = (gdf_connections[(gdf_connections["raw_sim_operator_name"]=="BAIT") &
+    (gdf_connections["postal_code"]==top_postal_code)]
+    .groupby("day_of_week")
+    .agg(
+        count=("device_id", "count")
+    )
+    .reset_index()
+)
+
+# Sort the rows by day of the week
+real_users_top['day_of_week'] = pd.Categorical(real_users_top['day_of_week'], sorted_weekdays)
+real_users_top = real_users_top.sort_values("day_of_week")
+
+# Filter the day with more users
+max_users_top = max(potential_users_top["count"])
+best_day_users_top = (
+    potential_users_top[potential_users_top["count"]== max_users_top]
+    .day_of_week
+    .iloc[0]
+)
+
+# Filter the day with less users
+less_users_top = min(potential_users_top["count"])
+worst_day_users_top = (
+    potential_users_top[potential_users_top["count"]== less_users_top]
+    .day_of_week
+    .iloc[0]
+)
 ```
 
 # Tienda Top: `{python} df_bait_users_per_store.head(n=1)["Nombre"][0]`
 
 Esta tienda es del formato `{python} df_bait_users_per_store.head(n=1)["Formato"][0]`, la cual tiene `{python} df_bait_users_per_store.head(n=1)["Clientes_reales"][0]` usuarios Bait.
 
--   Total Población:El día con más usuarios es el lunes, por el contrario, el día con menos usuarios es el domingo
+-   Total Población:El día con más usuarios es el `{python} best_day_traffic_top`, por el contrario, el día con menos usuarios es el `{python} worst_day_traffic_top`
 
--   Usuarios Bait: El día con más usuarios es el lunes, por el contrario, el día con menos usuarios es el domingo
+-   Usuarios Bait: El día con más usuarios es el `{python} best_day_users_top`, por el contrario, el día con menos usuarios es el `{python} worst_day_users_top`
 
 ```{python}
 def store_user_analysis(postal_code: str) -> None:
@@ -507,6 +573,12 @@ def store_user_analysis(postal_code: str) -> None:
         )
     df_store_real_users = df_store_real_users.sort_values("day_of_week")
 
+    df_store_potential_users['day_of_week'] = df_store_potential_users['day_of_week'].astype(str)
+    df_store_potential_users['count'] = pd.to_numeric(df_store_potential_users['count'], errors='coerce')
+
+    df_store_real_users['day_of_week'] = df_store_real_users['day_of_week'].astype(str)
+    df_store_real_users['count'] = pd.to_numeric(df_store_real_users['count'], errors='coerce')
+
     # Plot
     # Comparison of potential users and real users
     fig, axes = plt.subplots(2, 1)
@@ -529,17 +601,4 @@ def store_user_analysis(postal_code: str) -> None:
 
 # User analysis for the most crowded store
 store_user_analysis(top_postal_code)
-```
-
-# Tienda bottom: `{python} df_bait_users_per_store.tail(n=1)["Nombre"][0]`
-
-Esta tienda es del formato `{python} df_bait_users_per_store.tail(n=3)["Formato"][0]`, la cual tiene `{python} df_bait_users_per_store.tail(n=3)["Clientes_reales"][0]` usuarios Bait.
-
--   Total Población:El día con más usuarios es el sábado, por el contrario, el día con menos usuarios es el jueves
-
--   Usuarios Bait: El día con más usuarios es el martes, por el contrario, el día con menos usuarios es el jueves
-
-```{python}
-# User analysis for the less crowded store
-store_user_analysis(bottom_postal_code)
 ```
