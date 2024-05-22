@@ -10,7 +10,7 @@
 ## Project Overview :mag:
 This project aims to create a robust product data architecture to analyze and visualize the geographical distribution of users utilizing "BAIT" telecommunications service in Mexico. The architecture leverages Apache Spark on AWS for an ETL (Extract, Transform, Load) processes, Python for additional ELT (Extract, Load, Transform) operations, and Amazon QuickSight for creating insightful dashboards.
 
-![Project Flow](figures/project_flow.png)
+![Project Flow](figures/bait.png)
 
 ## Project Structure :open_file_folder:
 ```
