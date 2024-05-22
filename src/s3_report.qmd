@@ -276,7 +276,7 @@ Por otro lado, a nivel nacional los siguientes 4 OMVs con mayor participación d
 
 # Presencia nacional
 
-En el siguiente mapa se puede observar la presencia nacional de Bait en cada una de las tiendas (puntos de venta). El tamaño de la burbuja nos indica el número de clientes Bait por tienda. Para decidir si un cliente Bait es de una tienda en específico a cada conexión registrada en la base de datos se le asigna la tienda más cercana. Posteriormente, a cada usuario registrado, se le asigna la tienda donde se hayan registrado el mayor número de conexiones.
+En el siguiente mapa se puede observar la presencia nacional de Bait en cada una de las tiendas (puntos de venta). El tamaño de la burbuja nos indica el número de clientes Bait por tienda. Un tamaño de burbuja mayor está mapeado a un color rojo intenso y un tamaño menor a un color rojo claro. Para decidir si un cliente Bait es de una tienda en específico a cada conexión registrada en la base de datos se le asigna la tienda más cercana. Posteriormente, a cada usuario registrado, se le asigna la tienda donde se hayan registrado el mayor número de conexiones.
 
 ```{python}
 # Select only BAIT users
@@ -311,8 +311,8 @@ gdf_clients_stores.plot(
     ax=ax,
     markersize=gdf_clients_stores['count'],
     column='count',
-    legend=True,
-    cmap='Reds'
+    cmap='Reds',
+    alpha=0.5
 )
 ```
 
@@ -407,7 +407,7 @@ best_day = (
 )
 
 # Filter the day with less traffic
-less_traffic = max(potential_users["count"])
+less_traffic = min(potential_users["count"])
 worst_day = (
     potential_users[potential_users["count"]== less_traffic]
     .day_of_week
@@ -430,24 +430,30 @@ real_users = real_users.sort_values("day_of_week")
 Debido a que se tienen todas las conexiones de los usuarios de todos los OMVs, podemos identificar clientes potenciales para cada tienda con base en el número de usuarios que están activos en el mismo código postal de la unidad. Por ello, podemos identificar qué día de la semana hay más clientes potenciales vs el día con menor número. Por otro lado, se puede visualizar el mismo comportamiento, pero con el número de clientes Bait. Al realizar este contraste, podemos ver que el día que más usuarios potenciales están cercanos a la unidad es el `{python} best_day`, por el contrario, el día con menos usuarios potenciales, en el cual se podrían crear distintas estrategias para incentivar la presencia de más clientes es el `{python} worst_day`.
 
 ```{python}
-fig, axes = plt.subplots(2, 1)
-# First plot
-axes[0].bar(potential_users['day_of_week'], potential_users['count'])
-axes[0].set_title('Número de usuarios por día de la semana')
-# Rotate x-axis labels for better readability
-axes[0].set_xticklabels(potential_users['day_of_week'], rotation=45)
+def plot_store_analysis(store_potential_users, store_real_users):
+    # User analysis for a store
+    
+    # Comparison of potential users and real users
+    fig, axes = plt.subplots(2, 1)
 
-# Second plot
-axes[1].bar(real_users['day_of_week'], real_users['count'])
-axes[1].set_title('Número de usuarios Bait por día de la semana')
-# Rotate y-axis labels for better readability
-axes[1].set_xticklabels(real_users['day_of_week'], rotation=45)
+    # Distribution of the number of users per day of the week
+    axes[0].bar(store_potential_users['day_of_week'], store_potential_users['count'])
+    axes[0].set_title('Número de usuarios por día de la semana')
+    # Rotate x-axis labels for better readability
+    axes[0].set_xticklabels(store_potential_users['day_of_week'], rotation=45)
 
-# Adjust layout
-plt.tight_layout()
+    # Distribution of the number of BAIT users per day of the week
+    axes[1].bar(store_real_users['day_of_week'], store_real_users['count'])
+    axes[1].set_title('Número de usuarios Bait por día de la semana')
+    axes[1].set_xticklabels(store_real_users['day_of_week'], rotation=45)
 
-# Display the plots
-plt.show()
+    # Adjust layout
+    plt.tight_layout()
+
+    # Display the plots
+    plt.show()
+
+plot_store_analysis(potential_users, real_users)
 ```
 
 ```{python}
@@ -463,13 +469,6 @@ users_per_store = (
     )
     .reset_index()
     .sort_values("count", ascending=False)
-    .merge(
-        gdf_walmart.loc[:, ["id", "geometry"]],
-        on="id",
-        how="left"
-    )
-    .pipe(gpd.GeoDataFrame)
-    .set_crs(epsg=4326)
 )
 
 # Select the columns of interest
@@ -478,7 +477,7 @@ users_per_store = users_per_store[["name", "store_name", "count"]]
 users_per_store.columns = ["Nombre", "Formato", "Clientes_potenciales"]
 
 # Obtain the postal code of the most and less crowded store
-cp_top = str(gdf_walmart[gdf_walmart["name"]==users_per_store.head(n=1)["Nombre"][0]].postal_code.iloc[0])
+cp_top = str(gdf_walmart[gdf_walmart["name"]==users_per_store.head(n=1)["Nombre"].iloc[0]].postal_code.iloc[0])
 cp_bottom = str(gdf_walmart[gdf_walmart["name"]==users_per_store.tail(n=3)["Nombre"].iloc[0]].postal_code.iloc[0])
 
 ## User analysis for the most crowded store
@@ -505,7 +504,7 @@ best_day_traffic_top = (
 )
 
 # Filter the day with less traffic
-less_traffic_top = max(potential_users_top["count"])
+less_traffic_top = min(potential_users_top["count"])
 worst_day_traffic_top = (
     potential_users_top[potential_users_top["count"]== less_traffic_top]
     .day_of_week
@@ -534,7 +533,7 @@ best_day_users_top = (
 )
 
 # Filter the day with less users
-less_users_top = max(potential_users_top["count"])
+less_users_top = min(potential_users_top["count"])
 worst_day_users_top = (
     potential_users_top[potential_users_top["count"]== less_users_top]
     .day_of_week
@@ -551,63 +550,7 @@ Esta tienda es del formato `{python} users_per_store.head(n=1)["Formato"][0]`, l
 -   Usuarios Bait: El día con más usuarios es el `{python} best_day_users_top`, por el contrario, el día con menos usuarios es el `{python} worst_day_users_top`
 
 ```{python}
-def store_user_analysis(PC):
-    # User analysis for a store with PC (Postal Code)
-
-    # Analyze the potential users of the store
-    store_potential_users = (gdf_connections[gdf_connections["postal_code"]==PC]
-        .groupby("day_of_week")
-        .agg(
-            count=("device_id", "count")
-        )
-        .reset_index()
-    )
-
-    # Sort the rows by day of the week
-    store_potential_users['day_of_week'] = (pd
-        .Categorical(store_potential_users['day_of_week'], sorted_weekdays)
-        )
-    store_potential_users = store_potential_users.sort_values("day_of_week")
-
-    # Analyze the real users of the store
-    store_real_users = (gdf_connections[
-            (gdf_connections["raw_sim_operator_name"]=="BAIT") &
-            (gdf_connections["postal_code"]==PC)
-        ]
-        .groupby("day_of_week")
-        .agg(
-            count=("device_id", "count")
-        )
-        .reset_index()
-    )
-
-    # Sort the rows by day of the week
-    store_real_users['day_of_week'] = (pd
-        .Categorical(store_real_users['day_of_week'], sorted_weekdays)
-        )
-    store_real_users = store_real_users.sort_values("day_of_week")
-
-    # Comparison of potential users and real users
-    fig, axes = plt.subplots(2, 1)
-
-    # Distribution of the number of users per day of the week
-    axes[0].bar(store_potential_users['day_of_week'], store_potential_users['count'])
-    axes[0].set_title('Número de usuarios por día de la semana')
-    # Rotate x-axis labels for better readability
-    axes[0].set_xticklabels(store_potential_users['day_of_week'], rotation=45)
-
-    # Distribution of the number of BAIT users per day of the week
-    axes[1].bar(store_real_users['day_of_week'], store_real_users['count'])
-    axes[1].set_title('Número de usuarios Bait por día de la semana')
-    axes[1].set_xticklabels(store_real_users['day_of_week'], rotation=45)
-
-    # Adjust layout
-    plt.tight_layout()
-
-    # Display the plots
-    plt.show()
-
-store_user_analysis(cp_top)
+plot_store_analysis(potential_users_top, real_users_top)
 ```
 
 ```{python}
@@ -634,7 +577,7 @@ best_day_traffic_bottom = (
 )
 
 # Filter the day with less traffic
-less_traffic_bottom = max(potential_users_bottom["count"])
+less_traffic_bottom = min(potential_users_bottom["count"])
 worst_day_traffic_bottom = (
     potential_users_bottom[potential_users_bottom["count"]== less_traffic_bottom]
     .day_of_week
@@ -663,7 +606,7 @@ best_day_users_bottom = (
 )
 
 # Filter the day with less users
-less_users_bottom = max(potential_users_bottom["count"])
+less_users_bottom = min(potential_users_bottom["count"])
 worst_day_users_bottom = (
     potential_users_bottom[potential_users_bottom["count"]== less_users_bottom]
     .day_of_week
@@ -681,5 +624,5 @@ Esta tienda es del formato `{python} users_per_store.tail(n=3)["Formato"][0]`, l
 
 ```{python}
 # User analysis for the less crowded store
-store_user_analysis(cp_bottom)
+plot_store_analysis(potential_users_bottom, real_users_bottom)
 ```
