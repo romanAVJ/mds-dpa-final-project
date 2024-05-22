@@ -422,7 +422,7 @@ df_real_users['day_of_week'] = pd.Categorical(df_real_users['day_of_week'], sort
 df_real_users = df_real_users.sort_values("day_of_week")
 
 # Plot
-fig, axes = plt.subplots(2, 1, figsize=(8, 8))
+fig, axes = plt.subplots(2, 1, figsize=(6, 6))
 # First plot
 axes[0].bar(potential_users['day_of_week'], potential_users['count'])
 axes[0].set_title('Número de usuarios por día de la semana')
@@ -437,13 +437,31 @@ plt.tight_layout()
 plt.show()
 ```
 
-# Tienda Top: {python} users_per_store.head(n=1)["Nombre"][0]
+Debido a que se tienen todas las conexiones de los usuarios de todos los OMVs, podemos identificar clientes potenciales para cada tienda con base en el número de usuarios que están activos en el mismo código postal de la unidad. Por ello, podemos identificar qué día de la semana hay más clientes potenciales vs el día con menor número. Por otro lado, se puede visualizar el mismo comportamiento, pero con el número de clientes Bait. Al realizar este contraste, podemos ver que el día que más usuarios potenciales están cercanos a la unidad es el `{python} best_day`, por el contrario, el día con menos usuarios potenciales, en el cual se podrían crear distintas estrategias para incentivar la presencia de más clientes es el `{python} worst_day`.
 
-Esta tienda es del formato `{python} users_per_store.head(n=1)["Formato"][0]`, la cual tiene `{python} users_per_store.head(n=1)["Clientes_potenciales"][0]` usuarios activos.
+```{python}
+# Obtain the number of BAIT clients per store based in their postal_code
+df_bait_users_per_store = (
+    gdf_clients_stores_region
+    .sort_values("count", ascending=False)
+    [["name", "store_name","cve_name","count"]]
+    )
 
--   Total Población:El día con más usuarios es el `{python} best_day_traffic_top`, por el contrario, el día con menos usuarios es el `{python} worst_day_traffic_top`
+# columns in spanish for better understanding
+df_bait_users_per_store.columns = ["Nombre", "Formato", "Estado", "Clientes_reales"]
 
--   Usuarios Bait: El día con más usuarios es el `{python} best_day_users_top`, por el contrario, el día con menos usuarios es el `{python} worst_day_users_top`
+# Obtain the postal code of the most and less crowded store
+top_postal_code = str(gdf_walmart[gdf_walmart["name"] == df_bait_users_per_store.head(n=1)["Nombre"][0]].postal_code.iloc[0])
+bottom_postal_code = str(gdf_walmart[gdf_walmart["name"] == df_bait_users_per_store.tail(n=1)["Nombre"].iloc[0]].postal_code.iloc[0])
+```
+
+# Tienda Top: `{python} df_bait_users_per_store.head(n=1)["Nombre"][0]`
+
+Esta tienda es del formato `{python} df_bait_users_per_store.head(n=1)["Formato"][0]`, la cual tiene `{python} df_bait_users_per_store.head(n=1)["Clientes_reales"][0]` usuarios Bait.
+
+-   Total Población:El día con más usuarios es el lunes, por el contrario, el día con menos usuarios es el domingo
+
+-   Usuarios Bait: El día con más usuarios es el lunes, por el contrario, el día con menos usuarios es el domingo
 
 ```{python}
 def store_user_analysis(postal_code: str) -> None:
@@ -509,31 +527,17 @@ def store_user_analysis(postal_code: str) -> None:
     # Display
     plt.show()
 
-# Obtain the number of BAIT clients per store based in their postal_code
-df_bait_users_per_store = (
-    gdf_clients_stores_region
-    .sort_values("count", ascending=False)
-    [["name", "store_name","cve_name","count"]]
-    )
-
-# columns in spanish for better understanding
-df_bait_users_per_store.columns = ["Nombre", "Formato", "Estado", "Clientes_reales"]
-
-# Obtain the postal code of the most and less crowded store
-top_postal_code = str(gdf_walmart[gdf_walmart["name"] == df_bait_users_per_store.head(n=1)["Nombre"][0]].postal_code.iloc[0])
-bottom_postal_code = str(gdf_walmart[gdf_walmart["name"] == df_bait_users_per_store.tail(n=1)["Nombre"].iloc[0]].postal_code.iloc[0])
-
 # User analysis for the most crowded store
 store_user_analysis(top_postal_code)
 ```
 
-# Tienda bottom: `{python} users_per_store.tail(n=3)["Nombre"][0]`
+# Tienda bottom: `{python} df_bait_users_per_store.tail(n=1)["Nombre"][0]`
 
-Esta tienda es del formato `{python} users_per_store.tail(n=3)["Formato"][0]`, la cual tiene `{python} users_per_store.tail(n=3)["Clientes_potenciales"][0]` usuarios activos.
+Esta tienda es del formato `{python} df_bait_users_per_store.tail(n=3)["Formato"][0]`, la cual tiene `{python} df_bait_users_per_store.tail(n=3)["Clientes_reales"][0]` usuarios Bait.
 
--   Total Población:El día con más usuarios es el `{python} best_day_traffic_bottom`, por el contrario, el día con menos usuarios es el `{python} worst_day_traffic_bottom`
+-   Total Población:El día con más usuarios es el sábado, por el contrario, el día con menos usuarios es el jueves
 
--   Usuarios Bait: El día con más usuarios es el `{python} best_day_users_bottom`, por el contrario, el día con menos usuarios es el `{python} worst_day_users_bottom`
+-   Usuarios Bait: El día con más usuarios es el martes, por el contrario, el día con menos usuarios es el jueves
 
 ```{python}
 # User analysis for the less crowded store
