@@ -8,7 +8,7 @@
 
 
 ## Project Overview :mag:
-This project aims to create a robust product data architecture to analyze and visualize the geographical distribution of users utilizing "BAIT" telecommunications service in Mexico. The architecture leverages Apache Spark on AWS for an ETL (Extract, Transform, Load) processes, Python for additional ELT (Extract, Load, Transform) operations, and Amazon QuickSight for creating insightful dashboards.
+This project aims to create a robust product data architecture to analyze and visualize the geographical distribution of users utilizing "BAIT" telecommunications service in Mexico. The architecture leverages Python-Dask for an ETL (Extract, Transform, Load) processes, PySpark for additional ELT (Extract, Load, Transform) operations, and Quarto for creating insightful dashboards.
 
 ![Project Flow](figures/bait.png)
 
@@ -17,17 +17,19 @@ This project aims to create a robust product data architecture to analyze and vi
 .
 ├── figures/
 ├── data/
-├── etl/
-│   ├── scripts.py
-├── elt/
-│   ├── scripts.py
-│   └── requirements.txt
+├── src/
+│   ├── s1_etl.py
+│   ├── s2_elt.ipynb
+│   └── s3_report.qmd
 ├── README.md
+├── requirements.txt
+├── config.yaml
 └── LICENSE
 ```
 
 ## Prerequisites :scissors:
-- AWS account with access to S3, EMR, and QuickSight
+- AWS account with access to S3, EMR
+- Quarto
 - Python 3.9+
 
 ## Setup and Installation :hammer_and_wrench:
@@ -53,23 +55,27 @@ This project aims to create a robust product data architecture to analyze and vi
     ```
 
 ### ETL Process :arrows_counterclockwise:
-#### Spark on AWS
-Spark jobs are used to handle the initial stages of the ETL process.
+#### Dask Process
+Dask jobs are used to handle the initial stages of the ETL process.
 
 1. Configuration: Update etl/configs/config.json with your S3 bucket details and other configuration parameters.
-2. Submit Spark Jobs: Upload the Spark job scripts to S3 and submit the jobs to your EMR cluster.
+2. Submit Dask Jobs: Upload the Dask job scripts to S3 and submit the jobs to your EMR cluster.
+
+   ```bash
+   python src/s1_etl.py
+   ```
 
 #### ELT Process
-Python scripts are used for additional data transformation and loading processes.
+PySpark scripts are used for additional data transformation and loading processes.
 
 1. Run the ELT scripts to perform additional transformations and load the data into the output S3 bucket. You must download the data from the raw data S3 bucket to your local environment before running the scripts.
    ```bash
-   python elt/scripts.py
+   python src/s2_elt.ipynb
    ```
 
 ### Data Visualization :bar_chart:
 
-Amazon QuickSight is used to create dashboards for visualizing the geographical distribution of users.
+Quarto is used to create a report for visualizing the geographical distribution of users.
 
 ## Create Environment
 
